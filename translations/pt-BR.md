@@ -11,6 +11,12 @@ Inspirado por [clean-code-javascript](https://github.com/ryanmcdermott/clean-cod
   2. [Variáveis](#variáveis)
   3. [Funções](#funções)
   4. [Objetos e Estruturas de Dado](#objetos-e-estruturas-de-dado)
+  5. [Classes](#classes)
+  6. [SOLID](#solid)
+  7. [Testes](#testes)
+  8. [Lidando com Erros](#lidando-com-erros)
+  9. [Formatação](#formatação)
+  10. [Comentários](#comentários)
 
   ## Introdução
 Imagem bem-humorada sobre estimativa de qualidade de software de acordo com
@@ -898,4 +904,912 @@ Contudo, você precisa estar ciente de que em algumas situações, usar
 `attr_accessor` é um *code smell*, leia mais sobre
 [aqui](http://solnic.eu/2012/04/04/get-rid-of-that-code-smell-attributes.html).
 
+**[⬆ retornar ao topo](#sumário)**
+
+## **Classes**
+### Evite Interfaces Fluentes
+Uma [Interface Fluente](https://en.wikipedia.org/wiki/Fluent_interface) é uma
+API orientada a objetos que tem como objeto melhorar a legibilidade do código
+fonte ao usar [encadeamento de métodos](https://en.wikipedia.org/wiki/Method_chaining).
+
+Enquanto existem alguns contextos, frequentemente construtores de objetos, onde
+esse padrão reduz a verbosidade do código (ex: Consultas do ActiveRecord), muitas
+vezes ele tem alguns custos:
+
+1. Quebra [Encapsulamento](https://en.wikipedia.org/wiki/Encapsulation_%28object-oriented_programming%29)
+2. Breaks [Decoradores (*Decorators*)](https://en.wikipedia.org/wiki/Decorator_pattern)
+3. É mais difícil de trabalhar com [*mock*](https://en.wikipedia.org/wiki/Mock_object)
+em suítes de teste.
+4. Faz com que diferenças (*diffs*) entre commits sejam mais difíceis de serem lidas.
+
+Para mais informações sobre isso você pode ler a
+[postagem completa](https://ocramius.github.io/blog/fluent-interfaces-are-evil/)
+no blog, escrita por [Marco Pivetta](https://github.com/Ocramius) sobre esse
+tópico.
+
+**Ruim**
+```ruby
+class Car
+  def initialize(make, model, color)
+    @make = make
+    @model = model
+    @color = color
+    # Obs: Retornando self para encadeamento
+    self
+  end
+
+  def set_make(make)
+    @make = make
+    # Obs: Retornando self para encadeamento
+    self
+  end
+
+  def set_model(model)
+    @model = model
+    # Obs: Retornando self para encadeamento
+    self
+  end
+
+  def set_color(color)
+    @color = color
+    # Obs: Retornando self para encadeamento
+    self
+  end
+
+  def save
+    # Salva objeto...
+    # Obs: Retornando self para encadeamento
+    self
+  end
+end
+
+car = Car.new('Ford','F-150','red')
+  .set_color('pink')
+  .save
+```
+
+**Bom**
+```ruby
+class Car
+  attr_accessor :make, :model, :color
+
+  def initialize(make, model, color)
+    @make = make
+    @model = model
+    @color = color
+  end
+
+  def save
+    # Salva objeto...
+  end
+end
+
+car = Car.new('Ford', 'F-150', 'red')
+car.color = 'pink'
+car.save
+```
+**[⬆ retornar ao topo](#sumário)**
+
+### Prefira Composição ao invés de Herança
+Essa declaração ficou famosa no livro
+Padrões de Design([*Design Patterns*](https://en.wikipedia.org/wiki/Design_Patterns))
+escrito pelo Bando dos Quatro (*Gang of Four*). Você deveria preferir composição
+ao invés de heranção onde puder. Existem muitas boas razões para usar herança
+e muitas boas razões para usar composição. O ponto principal para esse ditado
+é que se sua mente vai instintivamente para herança, tente pensar se composição
+poderia modelar seu problema melhor. Em alguns casos, ela pode.
+
+Você pode estar se perguntando então, "quando eu deveria usar herança?". Isso
+depende no problema em questão, mas essa é uma lista decente sobre quando
+usar herança faz mais sentido do que composição:
+
+1. Sua herança representa uma relação do tipo "é uma" e não uma "tem uma"
+(Humano->Animal vs. Usuario->DetalhesUsuario).
+2. Você pode reutilizar código da classe base
+(Humano pode ser mover como todos os animais).
+3. Você quer fazer mudanças globais para classes derivadas ao trocar a classe
+base (Muda o consumo calórico de todos os animais quando eles se movem).
+
+**Ruim**
+```ruby
+class Employee
+  def initialize(name, email)
+    @name = name
+    @email = email
+  end
+
+  # ...
+end
+
+# Ruim porque Employees "tem" informações sobre tax. EmployeeTaxData não é um tipo de Employee
+class EmployeeTaxData < Employee
+  def initialize(ssn, salary)
+    super()
+    @ssn = ssn
+    @salary = salary
+  end
+
+  # ...
+end
+```
+
+**Bom**
+```ruby
+class EmployeeTaxData
+  def initialize(ssn, salary)
+    @ssn = ssn
+    @salary = salary
+  end
+
+  # ...
+end
+
+class Employee
+  def initialize(name, email)
+    this.name = name
+    this.email = email
+  end
+
+  def set_tax_data(ssn, salary)
+    @tax_data = EmployeeTaxData.new(ssn, salary)
+  end
+  # ...
+end
+```
+**[⬆ retornar ao topo](#sumário)**
+
+## **SOLID**
+### Princípio de Responsabilidade Única (*SRP - Single Responsibility Principle*)
+Conforme exposto no livro *Clean Code*, "Nunca deve existir mais do que uma razão
+para uma classe mudar". É tentador colocar em uma classe um monte de
+funcionalidades atoladas, da mesma forma de quando você só pode levar uma mala
+de viagem no seu voo. O problema nisso é que sua classe não será conceitualmente
+coesiva e ela terá muitas razões para mudar. Minimizar a quantidade de vezes
+que você precisa mudar a classe é importante. É importante porque se muita
+funcionalidade está em uma classe e você modifica uma parte dela, pode ser
+difícil entender como isso irá afetar os outros módulos que dependem da sua
+base de código.
+
+**Ruim**
+```ruby
+class UserSettings
+  def initialize(user)
+    @user = user
+  end
+
+  def change_settings(settings)
+    return unless valid_credentials?
+    # ...
+  end
+
+  def valid_credentials?
+    # ...
+  end
+end
+```
+
+**Bom**
+```ruby
+class UserAuth
+  def initialize(user)
+    @user = user
+  end
+
+  def valid_credentials?
+    # ...
+  end
+end
+
+class UserSettings
+  def initialize(user)
+    @user = user
+    @auth = UserAuth.new(user)
+  end
+
+  def change_settings(settings)
+    return unless @auth.valid_credentials?
+    # ...
+  end
+end
+```
+**[⬆ retornar ao topo](#sumário)**
+
+###  Princípio Aberto/Fechado (*OCP - Open/Closed Principle*)
+Conforme exposto por Bertrand Meyer, "Entidade de software (classes, módulos,
+funções, etc.) deveriam estar abertas para extensão, mas fechadas para
+modificação." O que isso significa? Esse princípio basicamente especifica que
+você deveria permitir um usuário adicionar funcionalidades sem ter que alterar
+código que já existe.
+
+**Ruim**
+```ruby
+class Adapter
+  attr_reader :name
+end
+
+class AjaxAdapter < Adapter
+  def initialize
+    super()
+    @name = 'ajaxAdapter'
+  end
+end
+
+class NodeAdapter < Adapter
+  def initialize
+    super()
+    @name = 'nodeAdapter'
+  end
+end
+
+class HttpRequester
+  def initialize(adapter)
+    @adapter = adapter
+  end
+
+  def fetch(url)
+    adapter_name = @adapter.name
+
+    if adapter_name == 'ajaxAdapter'
+      make_ajax_call(url)
+    elsif adapter_name == 'httpNodeAdapter'
+      make_http_call(url)
+    end
+  end
+
+  def make_ajax_call(url)
+    # ...
+  end
+
+  def make_http_call(url)
+    # ...
+  end
+end
+```
+
+**Bom**
+```ruby
+class Adapter
+  attr_reader :name
+end
+
+class AjaxAdapter < Adapter
+  def initialize
+    super()
+    @name = 'ajaxAdapter'
+  end
+
+  def request(url)
+    # ...
+  end
+end
+
+class NodeAdapter < Adapter
+  def initialize
+    super()
+    @name = 'nodeAdapter'
+  end
+
+  def request(url)
+    # ...
+  end
+end
+
+class HttpRequester
+  def initialize(adapter)
+    @adapter = adapter
+  end
+
+  def fetch(url)
+    @adapter.request(url)
+  end
+end
+```
+**[⬆ retornar ao topo](#sumário)**
+
+### Princípio de Substituição de Liskov (*LSP - Liskov Substitution Principle*)
+Esse é um termo assustador para um conceito muito simples. Ele é formalmente
+definido como "Se S é um subtipo de T, então objetos do tipo T podem ser
+substituídos por objetos do tipo S sem termos que alterar nenhuma propriedade
+desejável daquele programa (exatidão, tarefa executada, etc.)".
+Essa é uma definição ainda mais assustadora. Em outras palavras, objetos do tipo
+S podem substituir objetos do tipo T.
+
+
+A melhor explicação para isso é que se você tem uma classe pai e uma classe
+filha, então a classe pai pode sempre ser substituída pela classe filha sem
+termos resultados incorretos. Isso pode continuar confuso, então vamos dar uma
+olhada no exemplo clássico de Quadrado e Retângulo. Matematicamente, um
+quadrado é um retângulo, mas se seu modelo está uma relação "é um" através de
+herança, você rapidamente se encontra em um problema.
+
+**Ruim**
+```ruby
+class Rectangle
+  def initialize
+    @width  = 0
+    @height = 0
+  end
+
+  def color=(color)
+    # ...
+  end
+
+  def render(area)
+    # ...
+  end
+
+  def width=(width)
+    @width = width
+  end
+
+  def height=(height)
+    @height = height
+  end
+
+  def area
+    @width * @height
+  end
+end
+
+class Square < Rectangle
+  def width=(width)
+    @width  = width
+    @height = width
+  end
+
+  def height=(height)
+    @width  = height
+    @height = height
+  end
+end
+
+def render_large_rectangles(rectangles)
+  rectangles.each do |rectangle|
+    rectangle.width = 4
+    rectangle.height = 5
+    area = rectangle.area # Ruim: Retorna 25 para Square. Deveria ser 20.
+    rectangle.render(area)
+  end
+end
+
+rectangles = [Rectangle.new, Rectangle.new, Square.new]
+render_large_rectangles(rectangles)
+```
+
+**Bom**
+```ruby
+class Shape
+  def color=(color)
+    # ...
+  end
+
+  def render(area)
+    # ...
+  end
+end
+
+class Rectangle < Shape
+  def initialize(width, height)
+    super()
+    @width = width
+    @height = height
+  end
+
+  def area
+    @width * @height
+  end
+end
+
+class Square < Shape
+  def initialize(length)
+    super()
+    @length = length
+  end
+
+  def area
+    @length * @length
+  end
+end
+
+def render_large_shapes(shapes)
+  shapes.each do |shape|
+    area = shape.area
+    shape.render(area)
+  end
+end
+
+shapes = [Rectangle.new(4, 5), Rectangle.new(4, 5), Square.new(5)]
+render_large_shapes(shapes)
+```
+**[⬆ retornar ao topo](#sumário)**
+
+### Princípio de Segregação de Interface (*ISP - Interface Segregation Principle*)
+Ruby não tem interfaces (como em Java, por exemplo), então esse princípio não se
+aplica tão rigorosamente como em outras linguagens. No entanto, é importante e
+relevante mesmo com a falta de tipos em Ruby.
+
+Esse princípio declara que "Clientes não deveriam ser forçados a dependerem de
+interfaces que não usam." Interfaces são contratos implícitos em Ruby por causa
+do *duck typing*.
+
+Quando um cliente depende de uma classe que contém interfaces que ele
+não usa, mas outros cliente usam, então aquele cliente será afetado por
+mudanças que outros clientes forçam sobre a classe das interfaces.
+
+O exemplo a seguir foi tirado [daqui](http://geekhmer.github.io/blog/2015/03/18/interface-segregation-principle-in-ruby/).
+
+
+**Ruim**
+```ruby
+class Car
+  # usado por Driver
+  def open
+    # ...
+  end
+
+  # usado por Driver
+  def start_engine
+    # ...
+  end
+
+  # usado por Mechanic
+  def change_engine
+    # ...
+  end
+end
+
+class Driver
+  def drive
+    @car.open
+    @car.start_engine
+  end
+end
+
+class Mechanic
+  def do_stuff
+    @car.change_engine
+  end
+end
+
+```
+
+**Bom**
+```ruby
+# usado por Driver apenas
+class Car
+  def open
+    # ...
+  end
+
+  def start_engine
+    # ...
+  end
+end
+
+# usado por Mechanic apenas
+class CarInternals
+  def change_engine
+    # ...
+  end
+end
+
+class Driver
+  def drive
+    @car.open
+    @car.start_engine
+  end
+end
+
+class Mechanic
+  def do_stuff
+    @car_internals.change_engine
+  end
+end
+```
+
+**[⬆ retornar ao topo](#sumário)**
+
+### Princípio de Inversão de Dependências (*DIP - Dependency Inversion Principle*)
+Esse princípio declara duas coisas essenciais:
+1. Módulos de alto nível não deveriam depender de módulos de baixo nível. Ambos
+deveriam depender de abstrações.
+2. Abstrações não deveriam depender de detalhes. Detalhes deveriam depender de
+abstrações.
+
+Colocando de forma simples, esse princípio mantém módulos de alto nível sem
+saberem de detalhes de seus módulos de baixo nível e suas configurações. Isso
+pode ser alcançado através de inversão de dependências. Um grande benefício disso
+é a redução de acoplamento entre módulos. Acoplamento é muito ruim em
+padrões de desenvolvimento porque torna seu código difícil de ser refatorado.
+
+Como dito anteriormente, Ruby não tem interfaces, então as abstrações tem
+dependências em contratos subentendidos. Isso que dizer os métodos e
+propriedades que uma classe/objeto expõem para outra classe/objeto. No exemplo
+abaixo, o contrato subentendido é que qualquer módulo de *Request* para um
+objeto da classe `InventoryTracker` terá um método `request_items`.
+
+**Ruim**
+```ruby
+class InventoryRequester
+  def initialize
+    @req_methods = ['HTTP']
+  end
+
+  def request_item(item)
+    # ...
+  end
+end
+
+class InventoryTracker
+  def initialize(items)
+    @items = items
+
+    # Ruim: Nós criamos uma dependência em uma implementação específica de request
+    @requester = InventoryRequester.new
+  end
+
+  def request_items
+    @items.each do |item|
+      @requester.request_item(item)
+    end
+  end
+end
+
+inventory_tracker = InventoryTracker.new(['apples', 'bananas'])
+inventory_tracker.request_items
+```
+
+**Bom**
+```ruby
+class InventoryTracker
+  def initialize(items, requester)
+    @items = items
+    @requester = requester
+  end
+
+  def request_items
+    @items.each do |item|
+      @requester.request_item(item)
+    end
+  end
+end
+
+class InventoryRequesterV1
+  def initialize
+    @req_methods = ['HTTP']
+  end
+
+  def request_item(item)
+    # ...
+  end
+end
+
+class InventoryRequesterV2
+  def initialize
+    @req_methods = ['WS']
+  end
+
+  def request_item(item)
+    # ...
+  end
+end
+
+# Ao construir nossas dependências externamente e injeta-las, nós podemos
+# facilmente substituir nosso módulo de request por um novo que use WebSockets.
+inventory_tracker = InventoryTracker.new(['apples', 'bananas'], InventoryRequesterV2.new)
+inventory_tracker.request_items
+```
+**[⬆ retornar ao topo](#sumário)**
+
+## **Testes**
+Testar é mais importante do que colocar em produção. Se você não tem testes ou
+tem uma quantidade inadequada, então toda vez que você colocar seu código em
+produção você não vai ter certeza que não quebrou algo. Decidir o que constitui
+uma quantidade adequada é tarefa da sua equipe, mas ter 100% de cobertura (todas
+as declarações e ramos/caminhos) é como você atingi uma confiança muito alta
+e paz de espírito como desenvolvedor. Isso significa que além de ter um bom
+framework de testes, você também precisa de uma
+[boa ferramenta de cobertura](https://coveralls.io/).
+
+Não existem desculpas para não escrever testes. Ruby vem com sua própria
+ferramenta de teste, direto com a linguagem. Tenha como objetivo sempre escrever
+testes para cada nova funcionalidade ou módulo que você introduzir. Se seu
+método preferido é Desenvolvimento Guiado por Testes (TDD), isso é ótimo, mas
+o ponto principal é apenas se certificar que você está alcançando suas metas de
+cobertura antes de lançar qualquer funcionalidade ou refatorar uma existente.
+
+### Uma Expectativa por Teste
+
+**Ruim:**
+```ruby
+require 'rspec'
+
+describe 'Calculator' do
+  let(:calculator) { Calculator.new }
+
+  it 'performs addition, subtraction, multiplication and division' do
+    expect(calculator.calculate('1 + 2')).to eq(3)
+    expect(calculator.calculate('4 - 2')).to eq(2)
+    expect(calculator.calculate('2 * 3')).to eq(6)
+    expect(calculator.calculate('6 / 2')).to eq(3)
+  end
+end
+```
+
+**Bom:**
+```ruby
+require 'rspec'
+
+describe 'Calculator' do
+  let(:calculator) { Calculator.new }
+
+  it 'performs addition' do
+    expect(calculator.calculate('1 + 2')).to eq(3)
+  end
+
+  it 'performs subtraction' do
+    expect(calculator.calculate('4 - 2')).to eq(2)
+  end
+
+  it 'performs multiplication' do
+    expect(calculator.calculate('2 * 3')).to eq(6)
+  end
+
+  it 'performs division' do
+    expect(calculator.calculate('6 / 2')).to eq(3)
+  end
+end
+```
+**[⬆ retornar ao topo](#sumário)**
+
+## **Lidando com Erros**
+Erros lançados são uma coisa boa! Eles significam que em tempo de execução foi
+identificado quando algo em seu programa deu errado e está permitindo você saber
+ao parar a execução de uma função na pilha atual, matando o processo e
+notificando você nos logs com um rastreamento de pilha.
+
+### Não ignore erros apanhados
+Fazer nada com um erro apanhado não te permite corrigir ou reagir ao erro.
+Escrever o erro no log também não é muito melhor, já que muitas vezes ele pode
+se perder em um mar de outros registros no log. Se você envolveu qualquer
+pedaço de código em um `begin/rescue`, isso significa que você acha que um erro
+pode ocorrer ali e portanto você deveria ter um plano, ou criar um caminho com
+código, para quando isso ocorrer.
+
+**Ruim**
+```ruby
+require 'logger'
+
+logger = Logger.new(STDOUT)
+
+begin
+  function_that_might_throw()
+rescue StandardError => err
+  logger.info(err)
+end
+```
+
+**Bom**
+```ruby
+require 'logger'
+
+logger = Logger.new(STDOUT)
+# Mude o nível do logger para ERROR para mostrar apenas registros de nível ERROR ou superior
+logger.level = Logger::ERROR
+
+begin
+  function_that_might_throw()
+rescue StandardError => err
+  # Opção 1: Apenas registros de erros
+  logger.error(err)
+  # Opção 2: Notifique o usuário final através de uma interface
+  notify_user_of_error(err)
+  # Opção 3: Reporte o erro para um serviço de terceiro como Honeybadger
+  report_error_to_service(err)
+  # OU faça todas as três!
+end
+```
+
+### Forneça Contexto com Exceções
+Use um nome de classe de erro descritivo e uma mensagem quando você lançar um
+erro. Dessa forma você sabe porque o erro ocorreu e pode resgatar o tipo
+específico de erro.
+
+**Ruim**
+```ruby
+def initialize(user)
+  fail unless user
+  ...
+end
+```
+
+**Bom**
+```ruby
+def initialize(user)
+  fail ArgumentError, 'Missing user' unless user
+  ...
+end
+```
+
+**[⬆ retornar ao topo](#sumário)**
+
+## **Formatação**
+Formatação é subjetivo. Como muitas regras aqui, não existe uma regra rígida e
+rápida que você deve seguir. O ponto principal é NÃO DISCUTA sobre formatação.
+Existem diversas ferramentas como [RuboCop](https://github.com/bbatsov/rubocop)
+para automatizar isso. Use uma! É uma perda de tempo e dinheiro engenheiros
+ficarem discutindo sobre formatação.
+
+Para coisas que não estão no alcance de formatação automática (identação,
+tabulação vs. espaços, aspas simples ou duplas, etc.) olhe aqui para alguma
+orientação.
+
+### Use Capitalização Consistente
+Uma vez que você não declara tipos em Ruby, a capitalização diz muito sobre suas
+variáveis, funções, etc. Essas regras são subjetivas, então sua equipe pode
+escolher o que ela quiser. O ponto é, não importa o que vocês escolherem, apenas
+sejam consistentes.
+
+**Ruim**
+```ruby
+DAYS_IN_WEEK = 7
+daysInMonth = 30
+
+songs = ['Back In Black', 'Stairway to Heaven', 'Hey Jude']
+Artists = ['ACDC', 'Led Zeppelin', 'The Beatles']
+
+def eraseDatabase; end
+
+def restore_database; end
+
+class ANIMAL; end
+class Alpaca; end
+```
+
+**Bom**
+```ruby
+DAYS_IN_WEEK = 7
+DAYS_IN_MONTH = 30
+
+SONGS = ['Back In Black', 'Stairway to Heaven', 'Hey Jude'].freeze
+ARTISTS = ['ACDC', 'Led Zeppelin', 'The Beatles'].freeze
+
+def erase_database; end
+
+def restore_database; end
+
+class Animal; end
+class Alpaca; end
+```
+**[⬆ retornar ao topo](#sumário)**
+
+### Invocadores e Invocados deveriam estar Próximos
+Se uma função chama outra, mantenha essas funções verticalmente próximas no
+arquivo fonte. Idealmente, mantenha o invocador logo acima do invocado. Nós
+tendemos a ler código de cima para baixo, como em um jornal. Por causa disso,
+faça seu código ler desse jeito.
+
+**Ruim**
+```ruby
+class PerformanceReview
+  def initialize(employee)
+    @employee = employee
+  end
+
+  def lookup_peers
+    db.lookup(@employee, 'peers')
+  end
+
+  def lookup_manager
+    db.lookup(@employee, 'manager')
+  end
+
+  def peer_reviews
+    peers = lookup_peers
+    # ...
+  end
+
+  def perf_review
+    peer_reviews
+    manager_review
+    self_review
+  end
+
+  def manager_review
+    manager = lookup_manager
+    # ...
+  end
+
+  def self_review
+    # ...
+  end
+end
+
+review = PerformanceReview.new(employee)
+review.perf_review
+```
+
+**Bom**
+```ruby
+class PerformanceReview
+  def initialize(employee)
+    @employee = employee
+  end
+
+  def perf_review
+    peer_reviews
+    manager_review
+    self_review
+  end
+
+  def peer_reviews
+    peers = lookup_peers
+    # ...
+  end
+
+  def lookup_peers
+    db.lookup(@employee, 'peers')
+  end
+
+  def manager_review
+    manager = lookup_manager
+    # ...
+  end
+
+  def lookup_manager
+    db.lookup(@employee, 'manager')
+  end
+
+  def self_review
+    # ...
+  end
+end
+
+review = PerformanceReview.new(employee)
+review.perf_review
+```
+
+**[⬆ retornar ao topo](#sumário)**
+
+## **Comentários**
+
+### Não deixe código comentado na sua base de códigos
+Controle de versão existe por um motivo. Deixe código velho no seu histórico.
+
+**Ruim**
+```ruby
+do_stuff
+# do_other_stuff
+# do_some_more_stuff
+# do_so_much_stuff
+```
+
+**Bom**
+```ruby
+do_stuff
+```
+**[⬆ retornar ao topo](#sumário)**
+
+### Não tenha comentários de anotações
+Lembre-se, use o controle de versão! Não há razão para código morto, código
+comentado e especialmente comentários de anotações. Use `git log` para consultar
+seu histórico!
+
+**Ruim**
+```ruby
+# 2016-12-20: Removed monads, didn't understand them (RM)
+# 2016-10-01: Improved using special monads (JP)
+# 2016-02-03: Removed type-checking (LI)
+# 2015-03-14: Added combine with type-checking (JR)
+def combine(a, b)
+  a + b
+end
+```
+
+**Bom**
+```ruby
+def combine(a, b)
+  a + b
+end
+```
 **[⬆ retornar ao topo](#sumário)**
